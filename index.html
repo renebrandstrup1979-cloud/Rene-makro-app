@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="da" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Makro, Måltids- & Motionstracker v2</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: { 850: '#151e2e', 900: '#0f172a', 950: '#090d16' }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .tab-active { border-bottom: 2px solid #3b82f6; color: #60a5fa; font-weight: 600; }
+    input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-16">
+
+  <!-- TOP HEADER -->
+  <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-lg shadow-lg shadow-blue-600/30">M</div>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg leading-tight">Makro, Opskrift & Motion</h1>
+          <p class="text-xs text-slate-400" id="syncStatusSub">Lokal lagring aktiv</p>
+        </div>
+      </div>
+
+      <!-- Date Navigator & Quick Cloud Sync -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div id="quickSyncBtns" class="hidden items-center gap-1 bg-slate-850 border border-slate-700/80 rounded-lg p-1">
+          <button onclick="cloudPull()" class="px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded" title="Hent nyeste data fra skyen">Hent</button>
+          <button onclick="cloudPush()" class="px-2 py-1 text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 rounded font-medium" title="Gem data til skyen">Gem i sky</button>
+        </div>
+
+        <div class="flex items-center bg-slate-850 border border-slate-700/80 rounded-lg p-1">
+          <button onclick="changeDate(-1)" class="px-2.5 py-1 hover:bg-slate-700 rounded text-slate-300 text-sm" title="Forrige dag">&#8592;</button>
+          <input type="date" id="currentDateInput" onchange="onDatePick(this.value)" class="bg-transparent text-sm font-medium px-2 py-0.5 text-center focus:outline-none" />
+          <button onclick="changeDate(1)" class="px-2.5 py-1 hover:bg-slate-700 rounded text-slate-300 text-sm" title="Næste dag">&#8594;</button>
+          <button onclick="goToToday()" class="ml-1 px-2 py-1 text-xs bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded font-medium">I dag</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-6xl mx-auto px-4 flex gap-6 text-sm text-slate-400 border-t border-slate-800/60 overflow-x-auto">
+      <button onclick="switchTab('log')" id="tabBtn-log" class="py-2.5 tab-active whitespace-nowrap transition">Dagens Log, Opskrift & Motion</button>
+      <button onclick="switchTab('history')" id="tabBtn-history" class="py-2.5 hover:text-slate-200 whitespace-nowrap transition">Historik & Overblik</button>
+      <button onclick="switchTab('settings')" id="tabBtn-settings" class="py-2.5 hover:text-slate-200 whitespace-nowrap transition">Profil, Synkronisering & API</button>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-6xl mx-auto px-4 pt-6">
+
+    <!-- ==================== TAB 1: DAGENS LOG ==================== -->
+    <section id="tab-log" class="space-y-6">
+
+      <!-- Daily Macro & Exercise Summary -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400" id="dateHeaderLabel">Dagens Status</h2>
+            <p class="text-xs text-slate-400 mt-0.5" id="kcalEquationLabel">Mål: 2150 kcal + Motion: 0 kcal = Budget: 2150 kcal</p>
+          </div>
+          <!-- Quick Weight Log -->
+          <div class="flex items-center gap-2 bg-slate-850 px-3 py-1.5 rounded-lg border border-slate-800">
+            <label for="dailyWeightInput" class="text-xs text-slate-400">Dagens vægt (kg):</label>
+            <input type="number" step="0.1" id="dailyWeightInput" onchange="saveDailyWeight(this.value)" placeholder="--" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-sm text-center focus:outline-none focus:border-blue-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          <!-- Kalorier & Netto -->
+          <div class="bg-slate-850 border border-slate-800/90 rounded-xl p-3.5">
+            <div class="flex justify-between items-baseline">
+              <span class="text-xs font-medium text-blue-400">Kalorie-budget</span>
+              <span class="text-xs font-semibold text-slate-300" id="kcalRemainingLabel">0 tilbage</span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-2xl font-bold text-white" id="kcalCurrent">0</span>
+              <span class="text-xs text-slate-400">/ <span id="kcalTarget">2150</span> kcal</span>
+            </div>
+            <div class="w-full bg-slate-700/50 h-2 rounded-full mt-2.5 overflow-hidden">
+              <div id="kcalBar" class="bg-blue-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Motion / Forbrænding -->
+          <div class="bg-slate-850 border border-slate-800/90 rounded-xl p-3.5">
+            <div class="flex justify-between items-baseline">
+              <span class="text-xs font-medium text-cyan-400">Motion (Forbrændt)</span>
+              <span class="text-[11px] text-slate-400" id="exerciseTimeLabel">0 min</span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-2xl font-bold text-cyan-300" id="exerciseKcalCurrent">0</span>
+              <span class="text-xs text-slate-400">kcal aktiv</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-2 truncate" id="nettoKcalLabel">Netto indtag: 0 kcal</p>
+          </div>
+
+          <!-- Protein -->
+          <div class="bg-slate-850 border border-slate-800/90 rounded-xl p-3.5">
+            <div class="flex justify-between items-baseline">
+              <span class="text-xs font-medium text-emerald-400">Protein</span>
+              <span class="text-xs text-slate-400" id="protPctLabel">0%</span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-2xl font-bold text-white" id="protCurrent">0</span>
+              <span class="text-xs text-slate-400">/ <span id="protTarget">165</span> g</span>
+            </div>
+            <div class="w-full bg-slate-700/50 h-2 rounded-full mt-2.5 overflow-hidden">
+              <div id="protBar" class="bg-emerald-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Kulhydrat -->
+          <div class="bg-slate-850 border border-slate-800/90 rounded-xl p-3.5">
+            <div class="flex justify-between items-baseline">
+              <span class="text-xs font-medium text-amber-400">Kulhydrat</span>
+              <span class="text-xs text-slate-400" id="carbPctLabel">0%</span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-2xl font-bold text-white" id="carbCurrent">0</span>
+              <span class="text-xs text-slate-400">/ <span id="carbTarget">210</span> g</span>
+            </div>
+            <div class="w-full bg-slate-700/50 h-2 rounded-full mt-2.5 overflow-hidden">
+              <div id="carbBar" class="bg-amber-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Fedt -->
+          <div class="bg-slate-850 border border-slate-800/90 rounded-xl p-3.5">
+            <div class="flex justify-between items-baseline">
+              <span class="text-xs font-medium text-rose-400">Fedt</span>
+              <span class="text-xs text-slate-400" id="fatPctLabel">0%</span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span class="text-2xl font-bold text-white" id="fatCurrent">0</span>
+              <span class="text-xs text-slate-400">/ <span id="fatTarget">70</span> g</span>
+            </div>
+            <div class="w-full bg-slate-700/50 h-2 rounded-full mt-2.5 overflow-hidden">
+              <div id="fatBar" class="bg-rose-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TWO-COLUMN LAYOUT: LEFT = INPUT TOOLS, RIGHT = LOGGED MEALS & MOTION -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- LEFT COLUMN: INPUT CARD (5 cols) -->
+        <div class="lg:col-span-5 space-y-5">
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+
+            <!-- Mode Selector Pills -->
+            <div class="grid grid-cols-5 bg-slate-850 p-1 rounded-xl border border-slate-800 text-xs mb-4 gap-1">
+              <button onclick="setInputMode('ai')" id="modeBtn-ai" class="py-1.5 rounded-lg bg-blue-600 text-white font-medium text-center">AI Scan</button>
+              <button onclick="setInputMode('recipe')" id="modeBtn-recipe" class="py-1.5 rounded-lg text-slate-400 hover:text-white text-center">Opskrift</button>
+              <button onclick="setInputMode('motion')" id="modeBtn-motion" class="py-1.5 rounded-lg text-slate-400 hover:text-white text-center">Motion</button>
+              <button onclick="setInputMode('fav')" id="modeBtn-fav" class="py-1.5 rounded-lg text-slate-400 hover:text-white text-center">Favorit</button>
+              <button onclick="setInputMode('manual')" id="modeBtn-manual" class="py-1.5 rounded-lg text-slate-400 hover:text-white text-center">Manuel</button>
+            </div>
+
+            <!-- Shared Meal Category Selector (Hidden when in Motion mode) -->
+            <div id="mealCategoryWrapper" class="mb-3">
+              <label class="block text-xs text-slate-400 mb-1">Måltidstype</label>
+              <select id="mealCategorySelect" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                <option value="Morgenmad">Morgenmad</option>
+                <option value="Frokost">Frokost</option>
+                <option value="Aftensmad">Aftensmad</option>
+                <option value="Mellemmåltid">Mellemmåltid / Snack</option>
+              </select>
+            </div>
+
+            <!-- 1. AI SCANNER (SINGLE MEAL OR FULL RECIPE) -->
+            <div id="inputMode-ai" class="space-y-3">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Beskriv dit måltid eller en hel opskrift</label>
+                <textarea id="aiPromptText" rows="3" placeholder="F.eks. '150g kylling, 200g ovnkartofler og salat' ELLER 'Opskrift på 12 stk proteinboller: 400g cottage cheese, 4 æg, 250g havregryn'..." class="w-full bg-slate-850 border border-slate-700 rounded-lg p-2.5 text-sm focus:outline-none focus:border-blue-500"></textarea>
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Billede af mad eller opskrift (valgfrit)</label>
+                <div class="flex items-center gap-2">
+                  <label class="flex-1 cursor-pointer bg-slate-850 hover:bg-slate-800 border border-dashed border-slate-700 rounded-lg p-2.5 text-center transition">
+                    <span class="text-xs text-blue-400 font-medium" id="imageUploadLabel">+ Tag billede eller vælg fil</span>
+                    <input type="file" id="aiImageInput" accept="image/*" capture="environment" onchange="handleImageSelect(event)" class="hidden" />
+                  </label>
+                  <button id="clearImageBtn" onclick="clearSelectedImage()" class="hidden px-3 py-2 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg text-xs">Fjern</button>
+                </div>
+                <div id="imagePreviewContainer" class="hidden mt-2">
+                  <img id="imagePreview" class="max-h-40 rounded-lg border border-slate-700 mx-auto object-cover" alt="Forhåndsvisning" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button onclick="analyzeWithAI('single')" id="aiAnalyzeSingleBtn" class="py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs shadow-md transition">
+                  Beregn som 1 måltid
+                </button>
+                <button onclick="analyzeWithAI('recipe')" id="aiAnalyzeRecipeBtn" class="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg text-xs shadow-md transition">
+                  Beregn som hel opskrift
+                </button>
+              </div>
+
+              <p id="aiStatusMsg" class="text-xs text-slate-400 hidden"></p>
+            </div>
+
+            <!-- 2. OPSKRIFT / PORTIONSBEREGNER -->
+            <div id="inputMode-recipe" class="hidden space-y-3">
+              <div class="bg-indigo-950/40 border border-indigo-800/50 rounded-lg p-2.5 text-xs text-indigo-200">
+                Indtast (eller lad AI udfylde) hele opskriftens samlede indhold. Appen deler det op pr. styk/portion.
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Opskriftens navn</label>
+                <input type="text" id="recName" placeholder="F.eks. Hjemmebagte cottage cheese boller" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Samlet Kcal (hele portionen)</label>
+                  <input type="number" id="recTotalKcal" oninput="updateRecipePreview()" placeholder="0" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-emerald-400 mb-1">Samlet Protein (g)</label>
+                  <input type="number" id="recTotalProt" oninput="updateRecipePreview()" placeholder="0" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-amber-400 mb-1">Samlet Kulhydrat (g)</label>
+                  <input type="number" id="recTotalCarb" oninput="updateRecipePreview()" placeholder="0" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-rose-400 mb-1">Samlet Fedt (g)</label>
+                  <input type="number" id="recTotalFat" oninput="updateRecipePreview()" placeholder="0" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-sm" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2.5 pt-1 border-t border-slate-800">
+                <div>
+                  <label class="block text-xs text-slate-300 font-medium mb-1">Antal stk./portioner i alt</label>
+                  <input type="number" step="0.5" min="1" id="recTotalPortions" value="10" oninput="updateRecipePreview()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-bold text-white" />
+                </div>
+                <div>
+                  <label class="block text-xs text-blue-400 font-medium mb-1">Spiser lige nu (antal)</label>
+                  <input type="number" step="0.5" min="0.5" id="recEatPortions" value="2" oninput="updateRecipePreview()" class="w-full bg-slate-850 border border-blue-600 rounded-lg px-3 py-1.5 text-sm font-bold text-white" />
+                </div>
+              </div>
+
+              <div class="bg-slate-850 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
+                <div class="flex justify-between text-slate-400">
+                  <span>Pr. 1 stk./portion:</span>
+                  <span id="recPerUnitPreview" class="text-slate-200 font-medium">0 kcal | P: 0g | K: 0g | F: 0g</span>
+                </div>
+                <div class="flex justify-between text-blue-300 font-semibold">
+                  <span>Logges til dagbog nu:</span>
+                  <span id="recEatenPreview">0 kcal | P: 0g | K: 0g | F: 0g</span>
+                </div>
+              </div>
+
+              <div class="flex flex-col sm:flex-row gap-2 pt-1">
+                <button onclick="saveRecipePortion(true)" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-xs transition">
+                  + Log spiste & Gem 1 stk. i Favoritter
+                </button>
+                <button onclick="saveRecipePortion(false)" class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 transition">
+                  Kun log nu
+                </button>
+              </div>
+            </div>
+
+            <!-- 3. MOTION / TRÆNINGS-LOGGER -->
+            <div id="inputMode-motion" class="hidden space-y-3">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Vælg aktivitetstype (beregner ud fra din vægt)</label>
+                <select id="motionPresetSelect" onchange="onMotionPresetChange()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+                  <option value="8.5|Spinning (Høj intensitet)">Spinning (Moderat/Høj intensitet)</option>
+                  <option value="5.5|Styrketræning (6-12 reps)">Styrketræning (Vægte / Maskiner)</option>
+                  <option value="3.3|Gåbånd / Rask gåtur">Gåbånd / Rask gåtur</option>
+                  <option value="2.3|Desk-treadmill (Rolig gang)">Desk-treadmill (Rolig gang ved skrivebord)</option>
+                  <option value="9.0|Løb (Moderat tempo)">Løb (Moderat tempo)</option>
+                  <option value="6.0|Cykling (Udendørs)">Cykling (Udendørs)</option>
+                  <option value="0|Brugerdefineret aktivitet">Anden aktivitet (Indtast selv)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Aktivitetsnavn i loggen</label>
+                <input type="text" id="motionNameInput" value="Spinning (Høj intensitet)" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Varighed (minutter)</label>
+                  <input type="number" id="motionMinutesInput" value="45" oninput="calcMotionKcal()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-cyan-400 mb-1">Forbrændt (kcal)</label>
+                  <input type="number" id="motionKcalInput" placeholder="0" class="w-full bg-slate-850 border border-cyan-700/70 rounded-lg px-3 py-2 text-sm font-bold text-cyan-300" />
+                </div>
+              </div>
+
+              <p class="text-[11px] text-slate-400">
+                Tip: Du kan altid overskrive kalorierne med det præcise tal fra dit træningsur eller cykelcomputer.
+              </p>
+
+              <button onclick="saveExerciseToDay()" class="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded-lg text-sm transition">
+                + Log motion til dagen
+              </button>
+            </div>
+
+            <!-- 4. FAVORITTER -->
+            <div id="inputMode-fav" class="hidden space-y-2.5">
+              <p class="text-xs text-slate-400">Vælg antal og klik på <strong class="text-blue-400">+ Log</strong> for at tilføje til det valgte måltid:</p>
+              <div id="favoritesListContainer" class="space-y-2 max-h-80 overflow-y-auto pr-1"></div>
+            </div>
+
+            <!-- 5. MANUEL INDTASTNING / AI KORREKTUR -->
+            <div id="inputMode-manual" class="hidden space-y-3">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Navn på ret / fødevare</label>
+                <input type="text" id="manualName" placeholder="F.eks. Lakse-poke bowl" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Kalorier (kcal)</label>
+                  <input type="number" id="manualKcal" placeholder="0" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-emerald-400 mb-1">Protein (g)</label>
+                  <input type="number" step="0.1" id="manualProt" placeholder="0" oninput="autoCalcKcalFromMacros()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-amber-400 mb-1">Kulhydrat (g)</label>
+                  <input type="number" step="0.1" id="manualCarb" placeholder="0" oninput="autoCalcKcalFromMacros()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs text-rose-400 mb-1">Fedt (g)</label>
+                  <input type="number" step="0.1" id="manualFat" placeholder="0" oninput="autoCalcKcalFromMacros()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Noter / Ingredienser (valgfrit)</label>
+                <input type="text" id="manualNote" placeholder="Evt. gramvægt eller AI-detaljer" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300" />
+              </div>
+
+              <div class="flex items-center gap-2 pt-1">
+                <button onclick="saveMealFromManual(false)" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg text-sm transition">
+                  + Tilføj til dagbog
+                </button>
+                <button onclick="saveMealFromManual(true)" class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 transition">
+                  + & Gem favorit
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: TODAY'S LOGGED MEALS & EXERCISE (7 cols) -->
+        <div class="lg:col-span-7 space-y-4">
+          <div id="exerciseContainer"></div>
+          <div id="mealsContainer" class="space-y-4"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: HISTORIK & OVERBLIK ==================== -->
+    <section id="tab-history" class="hidden space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+          <div>
+            <h2 class="text-base font-bold">Historik, Motion & Gennemsnit</h2>
+            <p class="text-xs text-slate-400">Klik på en dato for at åbne eller redigere dagen</p>
+          </div>
+          <div class="flex flex-wrap gap-3 text-xs">
+            <div class="bg-slate-850 px-3 py-2 rounded-lg border border-slate-800">
+              <span class="text-slate-400 block">Gns. Indtag</span>
+              <span class="text-base font-bold text-white" id="histAvgKcal">0 kcal</span>
+            </div>
+            <div class="bg-slate-850 px-3 py-2 rounded-lg border border-slate-800">
+              <span class="text-slate-400 block">Gns. Motion</span>
+              <span class="text-base font-bold text-cyan-400" id="histAvgExercise">0 kcal</span>
+            </div>
+            <div class="bg-slate-850 px-3 py-2 rounded-lg border border-slate-800">
+              <span class="text-slate-400 block">Gns. Protein</span>
+              <span class="text-base font-bold text-emerald-400" id="histAvgProt">0 g</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bar Chart -->
+        <div class="mb-6">
+          <h3 class="text-xs font-medium text-slate-400 mb-2">Kalorieindtag pr. logget dag (seneste 14 aktive dage)</h3>
+          <div id="historyBarChart" class="h-40 bg-slate-850 border border-slate-800 rounded-xl p-3 flex items-end gap-2 overflow-x-auto"></div>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 text-xs text-slate-400 uppercase">
+                <th class="py-2.5 px-3">Dato</th>
+                <th class="py-2.5 px-3">Mad (Ind)</th>
+                <th class="py-2.5 px-3 text-cyan-400">Motion (Ud)</th>
+                <th class="py-2.5 px-3">Netto</th>
+                <th class="py-2.5 px-3 text-emerald-400">Protein</th>
+                <th class="py-2.5 px-3 text-amber-400">Kulh.</th>
+                <th class="py-2.5 px-3 text-rose-400">Fedt</th>
+                <th class="py-2.5 px-3">Vægt</th>
+                <th class="py-2.5 px-3 text-right">Handling</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody" class="divide-y divide-slate-800/60"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: PROFIL, SYNC & API ==================== -->
+    <section id="tab-settings" class="hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+        <!-- Kropsdata & Makroberegner -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+          <h2 class="text-base font-bold border-b border-slate-800 pb-2">1. Personlig Profil, Mål & Motions-regel</h2>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Køn</label>
+              <select id="profGender" onchange="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+                <option value="male">Mand</option>
+                <option value="female">Kvinde</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Alder (år)</label>
+              <input type="number" id="profAge" oninput="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Vægt (kg)</label>
+              <input type="number" step="0.1" id="profWeight" oninput="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Højde (cm)</label>
+              <input type="number" id="profHeight" oninput="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Basis Aktivitetsniveau i hverdagen (PAL)</label>
+            <select id="profActivity" onchange="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+              <option value="1.2">Stillesiddende (1.20 - bedst hvis du logger al motion separat)</option>
+              <option value="1.375">Let aktiv (1.375)</option>
+              <option value="1.55">Moderat aktiv (1.55)</option>
+              <option value="1.725">Meget aktiv (1.725)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Primært Mål</label>
+            <select id="profGoal" onchange="recalcProfileTargets()" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+              <option value="cut">Vægttab / Cut (-20% kcal | 30P / 40K / 30F)</option>
+              <option value="maintain">Vedligeholdelse (0% kcal | 25P / 45K / 30F)</option>
+              <option value="bulk">Muskelopbygning / Bulk (+12% kcal | 25P / 50K / 25F)</option>
+              <option value="custom">Brugerdefineret</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs text-cyan-400 mb-1">Hvordan skal logget motion påvirke dagens kaloriebudget?</label>
+            <select id="profExerciseCredit" class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+              <option value="0">0% (Motion vises i loggen, men øger ikke mit spise-budget)</option>
+              <option value="0.5">50% (Læg halvdelen af forbrændte kalorier oveni dagens mål)</option>
+              <option value="1">100% (Læg alle forbrændte motionskalorier oveni dagens mål)</option>
+            </select>
+          </div>
+
+          <div class="bg-slate-850 p-3.5 rounded-xl border border-slate-800 space-y-3">
+            <div class="flex justify-between text-xs text-slate-400">
+              <span>BMR: <strong id="calcBmrLabel" class="text-slate-200">0</strong> kcal</span>
+              <span>Basis TDEE: <strong id="calcTdeeLabel" class="text-slate-200">0</strong> kcal</span>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div>
+                <label class="block text-[11px] text-slate-400">Mål Kcal</label>
+                <input type="number" id="targetKcalInput" onchange="saveCustomTargets()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-emerald-400">Protein (g)</label>
+                <input type="number" id="targetProtInput" onchange="saveCustomTargets()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-amber-400">Kulhydrat (g)</label>
+                <input type="number" id="targetCarbInput" onchange="saveCustomTargets()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-[11px] text-rose-400">Fedt (g)</label>
+                <input type="number" id="targetFatInput" onchange="saveCustomTargets()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-bold" />
+              </div>
+            </div>
+          </div>
+
+          <button onclick="saveProfileSettings()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition">
+            Gem profil & motions-indstillinger
+          </button>
+        </div>
+
+        <!-- Synkronisering (PC + Mobil) & Gemini API -->
+        <div class="space-y-6">
+
+          <!-- Cloud Sync Config (JSONBin.io) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+            <h2 class="text-base font-bold border-b border-slate-800 pb-2">2. Synkronisering mellem PC & Mobil (Cloud Sync)</h2>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Vil du synkronisere med 1 klik mellem PC og telefon? Opret en gratis konto på <code>jsonbin.io</code>, indsæt din <strong>X-Master-Key</strong> herunder, og klik <em>Opret ny Cloud-Bin</em> på den første enhed. Indsæt derefter samme Bin-ID og nøgle på din anden enhed.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">JSONBin Master Key</label>
+                <input type="password" id="syncApiKeyInput" placeholder="$2a$10$..." class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-xs" />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">JSONBin Bin-ID</label>
+                <input type="text" id="syncBinIdInput" placeholder="670f..." class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-1.5 text-xs" />
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button onclick="saveSyncSettings()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium">Gem Sync-nøgler</button>
+              <button onclick="createNewCloudBin()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs">Opret ny Cloud-Bin</button>
+              <button onclick="exportDataJson()" class="px-3 py-1.5 bg-emerald-600/20 text-emerald-300 border border-emerald-600/30 rounded-lg text-xs">Download .json</button>
+              <label class="cursor-pointer px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200">
+                Indlæs .json
+                <input type="file" accept=".json" onchange="importDataJson(event)" class="hidden" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Gemini API Config -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+            <h2 class="text-base font-bold border-b border-slate-800 pb-2">3. Google Gemini API-Nøgle</h2>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              Bruges til at analysere billeder af din mad og udregne hele opskrifter automatisk med <code>gemini-2.5-flash</code>.
+            </p>
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Gemini API Key</label>
+              <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..." class="w-full bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <button onclick="saveApiKey()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium text-slate-200 transition">
+              Gem Gemini API-nøgle
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // ==================== STATE & STORAGE ====================
+    const STORAGE_KEY = 'makro_tracker_v2';
+    const API_KEY_STORAGE = 'makro_gemini_api_key';
+    const SYNC_CONFIG_STORAGE = 'makro_cloud_sync_cfg';
+
+    let currentSelectedDate = new Date().toISOString().slice(0, 10);
+    let selectedImageBase64 = null;
+    let selectedImageMimeType = null;
+
+    const defaultState = {
+      profile: {
+        gender: 'male',
+        age: 47,
+        weight: 82,
+        height: 180,
+        activity: 1.375,
+        goal: 'cut',
+        exerciseCredit: 0.5, // 50% eat-back default
+        targetKcal: 2050,
+        targetProt: 165,
+        targetCarb: 200,
+        targetFat: 65
+      },
+      favorites: [
+        { id: 'fav1', name: 'Koldgrød (Overnight oats) m. whey & bær (1 portion)', kcal: 440, prot: 36, carb: 52, fat: 9, note: '60g havregryn, 30g proteinpulver, 100g bær' },
+        { id: 'fav2', name: 'Cottage cheese proteinbolle (1 stk.)', kcal: 145, prot: 12, carb: 14, fat: 4, note: '1 stk. hjemmebagt bolle uden pålæg' },
+        { id: 'fav3', name: 'Tunsalat m. græsk yoghurt 2% (1 portion)', kcal: 290, prot: 42, carb: 6, fat: 10, note: '1 dåse tun, 100g græsk yoghurt, rødløg' }
+      ],
+      days: {} // 'YYYY-MM-DD': { weight: '', meals: [...], exercises: [ { id, name, minutes, kcal } ] }
+    };
+
+    let appData = loadAppData();
+
+    function loadAppData() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('makro_tracker_v1');
+        if (!raw) return JSON.parse(JSON.stringify(defaultState));
+        const parsed = JSON.parse(raw);
+        return {
+          profile: { ...defaultState.profile, ...(parsed.profile || {}) },
+          favorites: parsed.favorites || defaultState.favorites,
+          days: parsed.days || {}
+        };
+      } catch (e) {
+        return JSON.parse(JSON.stringify(defaultState));
+      }
+    }
+
+    function saveAppData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+      renderAll();
+    }
+
+    // ==================== INITIALIZATION ====================
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('currentDateInput').value = currentSelectedDate;
+      document.getElementById('geminiApiKeyInput').value = localStorage.getItem(API_KEY_STORAGE) || '';
+      loadSyncConfigUI();
+      populateProfileInputs();
+      calcMotionKcal();
+      renderAll();
+    });
+
+    function renderAll() {
+      renderDailySummaryAndMeals();
+      renderFavorites();
+      renderHistoryTab();
+    }
+
+    // ==================== NAVIGATION & MODES ====================
+    function switchTab(tabName) {
+      ['log', 'history', 'settings'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tabName);
+        document.getElementById('tabBtn-' + t).classList.toggle('tab-active', t === tabName);
+      });
+      if (tabName === 'history') renderHistoryTab();
+    }
+
+    function changeDate(offsetDays) {
+      const d = new Date(currentSelectedDate + 'T12:00:00');
+      d.setDate(d.getDate() + offsetDays);
+      currentSelectedDate = d.toISOString().slice(0, 10);
+      document.getElementById('currentDateInput').value = currentSelectedDate;
+      renderDailySummaryAndMeals();
+    }
+
+    function onDatePick(val) {
+      if (!val) return;
+      currentSelectedDate = val;
+      renderDailySummaryAndMeals();
+    }
+
+    function goToToday() {
+      currentSelectedDate = new Date().toISOString().slice(0, 10);
+      document.getElementById('currentDateInput').value = currentSelectedDate;
+      renderDailySummaryAndMeals();
+    }
+
+    function setInputMode(mode) {
+      ['ai', 'recipe', 'motion', 'fav', 'manual'].forEach(m => {
+        document.getElementById('inputMode-' + m).classList.toggle('hidden', m !== mode);
+        const btn = document.getElementById('modeBtn-' + m);
+        if (m === mode) {
+          btn.className = 'py-1.5 rounded-lg bg-blue-600 text-white font-medium text-center';
+        } else {
+          btn.className = 'py-1.5 rounded-lg text-slate-400 hover:text-white text-center';
+        }
+      });
+      // Hide meal category dropdown when logging motion
+      document.getElementById('mealCategoryWrapper').classList.toggle('hidden', mode === 'motion');
+    }
+
+    function getDayObject(dateStr) {
+      if (!appData.days[dateStr]) {
+        appData.days[dateStr] = { weight: '', meals: [], exercises: [] };
+      }
+      if (!appData.days[dateStr].exercises) {
+        appData.days[dateStr].exercises = [];
+      }
+      return appData.days[dateStr];
+    }
+
+    function saveDailyWeight(val) {
+      const day = getDayObject(currentSelectedDate);
+      day.weight = val ? parseFloat(val) : '';
+      saveAppData();
+    }
+
+    // ==================== RECIPE / BATCH SPLITTER ====================
+    function updateRecipePreview() {
+      const totKcal = parseFloat(document.getElementById('recTotalKcal').value) || 0;
+      const totProt = parseFloat(document.getElementById('recTotalProt').value) || 0;
+      const totCarb = parseFloat(document.getElementById('recTotalCarb').value) || 0;
+      const totFat = parseFloat(document.getElementById('recTotalFat').value) || 0;
+      const totalPortions = Math.max(0.5, parseFloat(document.getElementById('recTotalPortions').value) || 1);
+      const eatPortions = Math.max(0.1, parseFloat(document.getElementById('recEatPortions').value) || 1);
+
+      const uKcal = Math.round(totKcal / totalPortions);
+      const uProt = Math.round(totProt / totalPortions);
+      const uCarb = Math.round(totCarb / totalPortions);
+      const uFat = Math.round(totFat / totalPortions);
+
+      const eKcal = Math.round(uKcal * eatPortions);
+      const eProt = Math.round(uProt * eatPortions);
+      const eCarb = Math.round(uCarb * eatPortions);
+      const eFat = Math.round(uFat * eatPortions);
+
+      document.getElementById('recPerUnitPreview').textContent = `${uKcal} kcal | P: ${uProt}g | K: ${uCarb}g | F: ${uFat}g`;
+      document.getElementById('recEatenPreview').textContent = `${eKcal} kcal | P: ${eProt}g | K: ${eCarb}g | F: ${eFat}g`;
+    }
+
+    function saveRecipePortion(saveUnitToFavorites) {
+      const name = document.getElementById('recName').value.trim();
+      if (!name) {
+        alert('Giv venligst opskriften et navn.');
+        return;
+      }
+      const totKcal = parseFloat(document.getElementById('recTotalKcal').value) || 0;
+      const totProt = parseFloat(document.getElementById('recTotalProt').value) || 0;
+      const totCarb = parseFloat(document.getElementById('recTotalCarb').value) || 0;
+      const totFat = parseFloat(document.getElementById('recTotalFat').value) || 0;
+      const totalPortions = Math.max(0.5, parseFloat(document.getElementById('recTotalPortions').value) || 1);
+      const eatPortions = Math.max(0.1, parseFloat(document.getElementById('recEatPortions').value) || 1);
+
+      const uKcal = Math.round(totKcal / totalPortions);
+      const uProt = Math.round(totProt / totalPortions);
+      const uCarb = Math.round(totCarb / totalPortions);
+      const uFat = Math.round(totFat / totalPortions);
+
+      const category = document.getElementById('mealCategorySelect').value;
+      const day = getDayObject(currentSelectedDate);
+
+      day.meals.push({
+        id: 'm_' + Date.now(),
+        category,
+        name: `${name} (${eatPortions} stk./port.)`,
+        kcal: Math.round(uKcal * eatPortions),
+        prot: Math.round(uProt * eatPortions),
+        carb: Math.round(uCarb * eatPortions),
+        fat: Math.round(uFat * eatPortions),
+        note: `Fra opskrift (1/${totalPortions} = ${uKcal} kcal)`
+      });
+
+      if (saveUnitToFavorites) {
+        appData.favorites.push({
+          id: 'fav_' + Date.now(),
+          name: `${name} (1 stk./portion)`,
+          kcal: uKcal,
+          prot: uProt,
+          carb: uCarb,
+          fat: uFat,
+          note: `1 ud af ${totalPortions} fra opskrift`
+        });
+      }
+
+      document.getElementById('recName').value = '';
+      document.getElementById('recTotalKcal').value = '';
+      document.getElementById('recTotalProt').value = '';
+      document.getElementById('recTotalCarb').value = '';
+      document.getElementById('recTotalFat').value = '';
+      updateRecipePreview();
+      saveAppData();
+    }
+
+    // ==================== MOTION / EXERCISE ====================
+    function onMotionPresetChange() {
+      const raw = document.getElementById('motionPresetSelect').value;
+      const [metStr, label] = raw.split('|');
+      document.getElementById('motionNameInput').value = label;
+      calcMotionKcal();
+    }
+
+    function calcMotionKcal() {
+      const raw = document.getElementById('motionPresetSelect').value;
+      const met = parseFloat(raw.split('|')[0]) || 0;
+      const mins = parseFloat(document.getElementById('motionMinutesInput').value) || 0;
+      const weight = parseFloat(appData.profile.weight) || 80;
+      if (met > 0 && mins > 0) {
+        // Standard MET formula: kcal = MET * weight(kg) * (minutes / 60)
+        const burned = Math.round(met * weight * (mins / 60));
+        document.getElementById('motionKcalInput').value = burned;
+      }
+    }
+
+    function saveExerciseToDay() {
+      const name = document.getElementById('motionNameInput').value.trim() || 'Motion';
+      const minutes = parseInt(document.getElementById('motionMinutesInput').value, 10) || 0;
+      const kcal = parseInt(document.getElementById('motionKcalInput').value, 10) || 0;
+
+      if (kcal <= 0) {
+        alert('Indtast venligst forbrændte kalorier.');
+        return;
+      }
+
+      const day = getDayObject(currentSelectedDate);
+      day.exercises.push({
+        id: 'ex_' + Date.now(),
+        name,
+        minutes,
+        kcal
+      });
+
+      saveAppData();
+    }
+
+    function deleteExercise(exId) {
+      const day = getDayObject(currentSelectedDate);
+      day.exercises = day.exercises.filter(e => e.id !== exId);
+      saveAppData();
+    }
+
+    // ==================== RENDER DAILY SUMMARY, EXERCISE & MEALS ====================
+    function renderDailySummaryAndMeals() {
+      const day = getDayObject(currentSelectedDate);
+      const p = appData.profile;
+
+      const todayIso = new Date().toISOString().slice(0, 10);
+      document.getElementById('dateHeaderLabel').textContent =
+        currentSelectedDate === todayIso ? 'Dagens Status (I dag)' : `Status for ${currentSelectedDate}`;
+      document.getElementById('dailyWeightInput').value = day.weight || '';
+
+      let totKcal = 0, totProt = 0, totCarb = 0, totFat = 0;
+      day.meals.forEach(m => {
+        totKcal += Number(m.kcal) || 0;
+        totProt += Number(m.prot) || 0;
+        totCarb += Number(m.carb) || 0;
+        totFat += Number(m.fat) || 0;
+      });
+
+      let exKcal = 0, exMins = 0;
+      (day.exercises || []).forEach(e => {
+        exKcal += Number(e.kcal) || 0;
+        exMins += Number(e.minutes) || 0;
+      });
+
+      totKcal = Math.round(totKcal);
+      totProt = Math.round(totProt);
+      totCarb = Math.round(totCarb);
+      totFat = Math.round(totFat);
+      exKcal = Math.round(exKcal);
+
+      const creditFactor = Number(p.exerciseCredit ?? 0.5);
+      const bonusKcal = Math.round(exKcal * creditFactor);
+      const effectiveKcalTarget = p.targetKcal + bonusKcal;
+      const nettoKcal = totKcal - exKcal;
+
+      document.getElementById('kcalEquationLabel').textContent =
+        `Basis mål: ${p.targetKcal} kcal + Motionstillæg (${Math.round(creditFactor * 100)}%): ${bonusKcal} kcal = Dagligt budget: ${effectiveKcalTarget} kcal`;
+
+      document.getElementById('kcalCurrent').textContent = totKcal;
+      document.getElementById('kcalTarget').textContent = effectiveKcalTarget;
+      const remKcal = effectiveKcalTarget - totKcal;
+      document.getElementById('kcalRemainingLabel').textContent =
+        remKcal >= 0 ? `${remKcal} kcal tilbage` : `${Math.abs(remKcal)} kcal over`;
+
+      document.getElementById('exerciseKcalCurrent').textContent = exKcal;
+      document.getElementById('exerciseTimeLabel').textContent = `${exMins} min`;
+      document.getElementById('nettoKcalLabel').textContent = `Netto (Mad - Motion): ${nettoKcal} kcal`;
+
+      document.getElementById('protCurrent').textContent = totProt;
+      document.getElementById('protTarget').textContent = p.targetProt;
+      document.getElementById('carbCurrent').textContent = totCarb;
+      document.getElementById('carbTarget').textContent = p.targetCarb;
+      document.getElementById('fatCurrent').textContent = totFat;
+      document.getElementById('fatTarget').textContent = p.targetFat;
+
+      const kcalPct = Math.min(100, Math.round((totKcal / Math.max(1, effectiveKcalTarget)) * 100));
+      const protPct = Math.min(100, Math.round((totProt / Math.max(1, p.targetProt)) * 100));
+      const carbPct = Math.min(100, Math.round((totCarb / Math.max(1, p.targetCarb)) * 100));
+      const fatPct = Math.min(100, Math.round((totFat / Math.max(1, p.targetFat)) * 100));
+
+      document.getElementById('kcalBar').style.width = kcalPct + '%';
+      document.getElementById('protBar').style.width = protPct + '%';
+      document.getElementById('carbBar').style.width = carbPct + '%';
+      document.getElementById('fatBar').style.width = fatPct + '%';
+
+      document.getElementById('protPctLabel').textContent = protPct + '%';
+      document.getElementById('carbPctLabel').textContent = carbPct + '%';
+      document.getElementById('fatPctLabel').textContent = fatPct + '%';
+
+      // Render Exercise Card
+      const exCont = document.getElementById('exerciseContainer');
+      if (day.exercises.length === 0) {
+        exCont.innerHTML = `
+          <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-3.5 flex items-center justify-between">
+            <span class="text-xs text-slate-400">Ingen motion logget på denne dato endnu.</span>
+            <button onclick="setInputMode('motion')" class="text-xs text-cyan-400 hover:underline font-medium">+ Tilføj motion</button>
+          </div>
+        `;
+      } else {
+        exCont.innerHTML = `
+          <div class="bg-slate-900 border border-cyan-900/50 rounded-2xl p-4 shadow-md">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h4 class="font-semibold text-sm text-cyan-400">Dagens Motion & Træning</h4>
+              <span class="text-xs text-cyan-300 font-semibold">-${exKcal} kcal (${exMins} min)</span>
+            </div>
+            <div class="divide-y divide-slate-800/70 mt-2">
+              ${day.exercises.map(e => `
+                <div class="py-2 flex items-center justify-between">
+                  <div>
+                    <p class="text-sm font-medium text-slate-100">${escapeHtml(e.name)}</p>
+                    <p class="text-xs text-slate-400">${e.minutes} minutter &bull; <span class="text-cyan-400 font-medium">-${e.kcal} kcal</span></p>
+                  </div>
+                  <button onclick="deleteExercise('${e.id}')" class="text-xs text-slate-500 hover:text-rose-400 px-2 py-1">&#10005;</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      // Render Meals
+      const categories = ['Morgenmad', 'Frokost', 'Aftensmad', 'Mellemmåltid'];
+      const container = document.getElementById('mealsContainer');
+      container.innerHTML = '';
+
+      categories.forEach(cat => {
+        const catMeals = day.meals.filter(m => m.category === cat);
+        const catKcal = Math.round(catMeals.reduce((s, m) => s + (Number(m.kcal) || 0), 0));
+        const catProt = Math.round(catMeals.reduce((s, m) => s + (Number(m.prot) || 0), 0));
+
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-md';
+
+        const itemsHtml = catMeals.length === 0
+          ? `<p class="text-xs text-slate-500 italic py-2">Intet logget under ${cat.toLowerCase()} endnu.</p>`
+          : `<div class="divide-y divide-slate-800/70 mt-2">` + catMeals.map(m => `
+            <div class="py-2.5 flex items-center justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium text-slate-100 truncate">${escapeHtml(m.name)}</p>
+                ${m.note ? `<p class="text-xs text-slate-400 truncate">${escapeHtml(m.note)}</p>` : ''}
+                <div class="flex gap-3 mt-1 text-xs">
+                  <span class="text-slate-300 font-semibold">${Math.round(m.kcal)} kcal</span>
+                  <span class="text-emerald-400">P: ${Math.round(m.prot)}g</span>
+                  <span class="text-amber-400">K: ${Math.round(m.carb)}g</span>
+                  <span class="text-rose-400">F: ${Math.round(m.fat)}g</span>
+                </div>
+              </div>
+              <button onclick="deleteMeal('${m.id}')" class="text-xs text-slate-500 hover:text-rose-400 px-2 py-1 rounded">&#10005;</button>
+            </div>
+          `).join('') + `</div>`;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <h4 class="font-semibold text-sm text-white">${cat}</h4>
+            <span class="text-xs text-slate-400">${catKcal} kcal &bull; <strong class="text-emerald-400">${catProt}g protein</strong></span>
+          </div>
+          ${itemsHtml}
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function autoCalcKcalFromMacros() {
+      const p = parseFloat(document.getElementById('manualProt').value) || 0;
+      const c = parseFloat(document.getElementById('manualCarb').value) || 0;
+      const f = parseFloat(document.getElementById('manualFat').value) || 0;
+      const est = Math.round(p * 4 + c * 4 + f * 9);
+      if (est > 0) document.getElementById('manualKcal').value = est;
+    }
+
+    function saveMealFromManual(alsoSaveFavorite) {
+      const category = document.getElementById('mealCategorySelect').value;
+      const name = document.getElementById('manualName').value.trim();
+      const kcal = parseFloat(document.getElementById('manualKcal').value) || 0;
+      const prot = parseFloat(document.getElementById('manualProt').value) || 0;
+      const carb = parseFloat(document.getElementById('manualCarb').value) || 0;
+      const fat = parseFloat(document.getElementById('manualFat').value) || 0;
+      const note = document.getElementById('manualNote').value.trim();
+
+      if (!name) {
+        alert('Indtast venligst et navn på måltidet.');
+        return;
+      }
+
+      const day = getDayObject(currentSelectedDate);
+      day.meals.push({
+        id: 'm_' + Date.now(),
+        category,
+        name,
+        kcal: Math.round(kcal),
+        prot: Math.round(prot),
+        carb: Math.round(carb),
+        fat: Math.round(fat),
+        note
+      });
+
+      if (alsoSaveFavorite) {
+        appData.favorites.push({
+          id: 'fav_' + Date.now(),
+          name,
+          kcal: Math.round(kcal),
+          prot: Math.round(prot),
+          carb: Math.round(carb),
+          fat: Math.round(fat),
+          note
+        });
+      }
+
+      document.getElementById('manualName').value = '';
+      document.getElementById('manualKcal').value = '';
+      document.getElementById('manualProt').value = '';
+      document.getElementById('manualCarb').value = '';
+      document.getElementById('manualFat').value = '';
+      document.getElementById('manualNote').value = '';
+      saveAppData();
+    }
+
+    function deleteMeal(mealId) {
+      const day = getDayObject(currentSelectedDate);
+      day.meals = day.meals.filter(m => m.id !== mealId);
+      saveAppData();
+    }
+
+    // ==================== FAVORITES (WITH MULTIPLIER) ====================
+    function renderFavorites() {
+      const cont = document.getElementById('favoritesListContainer');
+      if (!appData.favorites || appData.favorites.length === 0) {
+        cont.innerHTML = `<p class="text-xs text-slate-500 italic">Ingen favoritter gemt endnu.</p>`;
+        return;
+      }
+      cont.innerHTML = appData.favorites.map(f => `
+        <div class="bg-slate-850 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold text-slate-100 truncate">${escapeHtml(f.name)}</p>
+            <p class="text-[11px] text-slate-400">${f.kcal} kcal | P: ${f.prot}g | K: ${f.carb}g | F: ${f.fat}g</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input type="number" step="0.5" min="0.5" value="1" id="favMult_${f.id}" class="w-12 bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs text-center" title="Antal stk./portioner" />
+            <button onclick="addFavoriteToDay('${f.id}')" class="px-2.5 py-1 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded text-xs font-medium">+ Log</button>
+            <button onclick="deleteFavorite('${f.id}')" class="px-1.5 py-1 text-slate-500 hover:text-rose-400 text-xs">&#10005;</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function addFavoriteToDay(favId) {
+      const fav = appData.favorites.find(f => f.id === favId);
+      if (!fav) return;
+      const multInput = document.getElementById('favMult_' + favId);
+      const mult = Math.max(0.25, parseFloat(multInput ? multInput.value : 1) || 1);
+
+      const category = document.getElementById('mealCategorySelect').value;
+      const day = getDayObject(currentSelectedDate);
+      day.meals.push({
+        id: 'm_' + Date.now(),
+        category,
+        name: mult === 1 ? fav.name : `${fav.name} (${mult}x)`,
+        kcal: Math.round(fav.kcal * mult),
+        prot: Math.round(fav.prot * mult),
+        carb: Math.round(fav.carb * mult),
+        fat: Math.round(fav.fat * mult),
+        note: fav.note || ''
+      });
+      saveAppData();
+    }
+
+    function deleteFavorite(favId) {
+      appData.favorites = appData.favorites.filter(f => f.id !== favId);
+      saveAppData();
+    }
+
+    // ==================== GEMINI AI (SINGLE MEAL OR RECIPE BATCH) ====================
+    function handleImageSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const maxDim = 1024;
+          let w = img.width, h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) { h = Math.round(h * (maxDim / w)); w = maxDim; }
+            else { w = Math.round(w * (maxDim / h)); h = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+          selectedImageBase64 = dataUrl.split(',')[1];
+          selectedImageMimeType = 'image/jpeg';
+
+          document.getElementById('imagePreview').src = dataUrl;
+          document.getElementById('imagePreviewContainer').classList.remove('hidden');
+          document.getElementById('clearImageBtn').classList.remove('hidden');
+          document.getElementById('imageUploadLabel').textContent = 'Skift billede';
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearSelectedImage() {
+      selectedImageBase64 = null;
+      selectedImageMimeType = null;
+      document.getElementById('aiImageInput').value = '';
+      document.getElementById('imagePreviewContainer').classList.add('hidden');
+      document.getElementById('clearImageBtn').classList.add('hidden');
+      document.getElementById('imageUploadLabel').textContent = '+ Tag billede eller vælg fil';
+    }
+
+    async function analyzeWithAI(targetMode) {
+      const apiKey = (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+      if (!apiKey) {
+        alert('Indtast venligst din Gemini API-nøgle under fanen "Profil, Synkronisering & API" først.');
+        switchTab('settings');
+        return;
+      }
+
+      const textPrompt = document.getElementById('aiPromptText').value.trim();
+      if (!textPrompt && !selectedImageBase64) {
+        alert('Skriv en kort beskrivelse eller vedhæft et billede først.');
+        return;
+      }
+
+      const statusMsg = document.getElementById('aiStatusMsg');
+      statusMsg.classList.remove('hidden');
+      statusMsg.textContent = 'Analyserer med Gemini AI...';
+
+      try {
+        const parts = [];
+        if (selectedImageBase64) {
+          parts.push({
+            inlineData: {
+              mimeType: selectedImageMimeType || 'image/jpeg',
+              data: selectedImageBase64
+            }
+          });
+        }
+
+        const systemInstruction = `Du er en præcis dansk ernærings- og opskriftsberegner.
+Analyser brugerens billede og/eller tekst.
+Hvis der er tale om en opskrift med flere stykker/portioner, beregn TOTALEN for hele opskriften og angiv det estimerede antal stykker/portioner i "portions".
+Returner KUN valid JSON:
+{
+  "name": "Kort dansk navn på retten/opskriften",
+  "kcal": heltal (samlet kalorieindhold),
+  "prot": heltal (samlet gram protein),
+  "carb": heltal (samlet gram kulhydrat),
+  "fat": heltal (samlet gram fedt),
+  "portions": heltal (f.eks. 1 for enkeltmåltid eller antal stk/portioner i opskriften),
+  "note": "Kort dansk opsummering af ingredienser/mængder"
+}`;
+
+        parts.push({
+          text: `${systemInstruction}\n\nBrugerens input: ${textPrompt || '(Analyser billedet)'}`
+        });
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
+          })
+        });
+
+        if (!response.ok) throw new Error(`API-fejl (${response.status})`);
+        const data = await response.json();
+        const parsed = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+
+        if (targetMode === 'recipe') {
+          setInputMode('recipe');
+          document.getElementById('recName').value = parsed.name || 'Opskrift';
+          document.getElementById('recTotalKcal').value = Math.round(Number(parsed.kcal) || 0);
+          document.getElementById('recTotalProt').value = Math.round(Number(parsed.prot) || 0);
+          document.getElementById('recTotalCarb').value = Math.round(Number(parsed.carb) || 0);
+          document.getElementById('recTotalFat').value = Math.round(Number(parsed.fat) || 0);
+          document.getElementById('recTotalPortions').value = Math.max(1, Number(parsed.portions) || 6);
+          document.getElementById('recEatPortions').value = 1;
+          updateRecipePreview();
+        } else {
+          setInputMode('manual');
+          document.getElementById('manualName').value = parsed.name || 'AI-måltid';
+          document.getElementById('manualKcal').value = Math.round(Number(parsed.kcal) || 0);
+          document.getElementById('manualProt').value = Math.round(Number(parsed.prot) || 0);
+          document.getElementById('manualCarb').value = Math.round(Number(parsed.carb) || 0);
+          document.getElementById('manualFat').value = Math.round(Number(parsed.fat) || 0);
+          document.getElementById('manualNote').value = parsed.note || '';
+        }
+
+        statusMsg.classList.add('hidden');
+        document.getElementById('aiPromptText').value = '';
+        clearSelectedImage();
+      } catch (err) {
+        statusMsg.textContent = 'Fejl ved AI-analyse: ' + err.message;
+      }
+    }
+
+    // ==================== HISTORY TAB ====================
+    function renderHistoryTab() {
+      const dates = Object.keys(appData.days).sort().reverse();
+      const activeDates = dates.filter(d => {
+        const day = appData.days[d];
+        return day && ((day.meals && day.meals.length > 0) || (day.exercises && day.exercises.length > 0) || day.weight);
+      });
+
+      const tbody = document.getElementById('historyTableBody');
+      const chart = document.getElementById('historyBarChart');
+
+      if (activeDates.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="py-6 text-center text-slate-500 text-xs">Ingen historik logget endnu.</td></tr>`;
+        chart.innerHTML = `<p class="text-xs text-slate-500 m-auto">Log dit første måltid for at se grafen.</p>`;
+        return;
+      }
+
+      let sumKcal = 0, sumProt = 0, sumEx = 0, countDays = 0;
+
+      tbody.innerHTML = activeDates.map(dateStr => {
+        const d = appData.days[dateStr];
+        const kcal = Math.round((d.meals || []).reduce((s, m) => s + (Number(m.kcal) || 0), 0));
+        const prot = Math.round((d.meals || []).reduce((s, m) => s + (Number(m.prot) || 0), 0));
+        const carb = Math.round((d.meals || []).reduce((s, m) => s + (Number(m.carb) || 0), 0));
+        const fat = Math.round((d.meals || []).reduce((s, m) => s + (Number(m.fat) || 0), 0));
+        const ex = Math.round((d.exercises || []).reduce((s, e) => s + (Number(e.kcal) || 0), 0));
+        const netto = kcal - ex;
+
+        if ((d.meals && d.meals.length > 0) || ex > 0) {
+          sumKcal += kcal;
+          sumProt += prot;
+          sumEx += ex;
+          countDays++;
+        }
+
+        return `
+          <tr class="hover:bg-slate-850/80 transition">
+            <td class="py-2.5 px-3 font-medium text-white">${dateStr}</td>
+            <td class="py-2.5 px-3">${kcal} kcal</td>
+            <td class="py-2.5 px-3 text-cyan-400">-${ex} kcal</td>
+            <td class="py-2.5 px-3 font-semibold text-slate-200">${netto} kcal</td>
+            <td class="py-2.5 px-3 text-emerald-400 font-medium">${prot} g</td>
+            <td class="py-2.5 px-3 text-amber-400">${carb} g</td>
+            <td class="py-2.5 px-3 text-rose-400">${fat} g</td>
+            <td class="py-2.5 px-3 text-slate-300">${d.weight ? d.weight + ' kg' : '—'}</td>
+            <td class="py-2.5 px-3 text-right">
+              <button onclick="openDateFromHistory('${dateStr}')" class="text-xs text-blue-400 hover:underline">Åbn</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      document.getElementById('histAvgKcal').textContent = countDays > 0 ? Math.round(sumKcal / countDays) + ' kcal' : '0 kcal';
+      document.getElementById('histAvgExercise').textContent = countDays > 0 ? Math.round(sumEx / countDays) + ' kcal' : '0 kcal';
+      document.getElementById('histAvgProt').textContent = countDays > 0 ? Math.round(sumProt / countDays) + ' g' : '0 g';
+
+      const chartDates = activeDates.slice(0, 14).reverse();
+      const maxKcal = Math.max(appData.profile.targetKcal * 1.2, ...chartDates.map(d =>
+        (appData.days[d].meals || []).reduce((s, m) => s + (Number(m.kcal) || 0), 0)
+      ), 1000);
+
+      chart.innerHTML = chartDates.map(dateStr => {
+        const kcal = Math.round((appData.days[dateStr].meals || []).reduce((s, m) => s + (Number(m.kcal) || 0), 0));
+        const heightPct = Math.min(100, Math.max(6, Math.round((kcal / maxKcal) * 100)));
+        return `
+          <div onclick="openDateFromHistory('${dateStr}')" class="flex-1 min-w-[38px] h-full flex flex-col justify-end items-center cursor-pointer group">
+            <span class="text-[10px] text-slate-400 mb-1">${kcal}</span>
+            <div class="w-full max-w-[28px] bg-blue-500 rounded-t-md transition-all" style="height: ${heightPct}%"></div>
+            <span class="text-[10px] text-slate-500 mt-1">${dateStr.slice(5)}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function openDateFromHistory(dateStr) {
+      currentSelectedDate = dateStr;
+      document.getElementById('currentDateInput').value = currentSelectedDate;
+      switchTab('log');
+      renderDailySummaryAndMeals();
+    }
+
+    // ==================== PROFILE & CLOUD SYNC ====================
+    function populateProfileInputs() {
+      const p = appData.profile;
+      document.getElementById('profGender').value = p.gender;
+      document.getElementById('profAge').value = p.age;
+      document.getElementById('profWeight').value = p.weight;
+      document.getElementById('profHeight').value = p.height;
+      document.getElementById('profActivity').value = String(p.activity);
+      document.getElementById('profGoal').value = p.goal;
+      document.getElementById('profExerciseCredit').value = String(p.exerciseCredit ?? 0.5);
+      document.getElementById('targetKcalInput').value = p.targetKcal;
+      document.getElementById('targetProtInput').value = p.targetProt;
+      document.getElementById('targetCarbInput').value = p.targetCarb;
+      document.getElementById('targetFatInput').value = p.targetFat;
+      updateBmrTdeeLabels();
+    }
+
+    function updateBmrTdeeLabels() {
+      const gender = document.getElementById('profGender').value;
+      const age = parseFloat(document.getElementById('profAge').value) || 47;
+      const weight = parseFloat(document.getElementById('profWeight').value) || 82;
+      const height = parseFloat(document.getElementById('profHeight').value) || 180;
+      const act = parseFloat(document.getElementById('profActivity').value) || 1.375;
+
+      const bmr = gender === 'male'
+        ? Math.round(10 * weight + 6.25 * height - 5 * age + 5)
+        : Math.round(10 * weight + 6.25 * height - 5 * age - 161);
+      const tdee = Math.round(bmr * act);
+
+      document.getElementById('calcBmrLabel').textContent = bmr;
+      document.getElementById('calcTdeeLabel').textContent = tdee;
+      return { bmr, tdee };
+    }
+
+    function recalcProfileTargets() {
+      const { tdee } = updateBmrTdeeLabels();
+      const goal = document.getElementById('profGoal').value;
+      if (goal === 'custom') return;
+
+      let factor = 1.0, pPct = 0.25, cPct = 0.45, fPct = 0.30;
+      if (goal === 'cut') { factor = 0.80; pPct = 0.30; cPct = 0.40; fPct = 0.30; }
+      if (goal === 'bulk') { factor = 1.12; pPct = 0.25; cPct = 0.50; fPct = 0.25; }
+
+      const targetKcal = Math.round(tdee * factor);
+      document.getElementById('targetKcalInput').value = targetKcal;
+      document.getElementById('targetProtInput').value = Math.round((targetKcal * pPct) / 4);
+      document.getElementById('targetCarbInput').value = Math.round((targetKcal * cPct) / 4);
+      document.getElementById('targetFatInput').value = Math.round((targetKcal * fPct) / 9);
+    }
+
+    function saveCustomTargets() {
+      document.getElementById('profGoal').value = 'custom';
+    }
+
+    function saveProfileSettings() {
+      appData.profile = {
+        gender: document.getElementById('profGender').value,
+        age: parseInt(document.getElementById('profAge').value, 10) || 47,
+        weight: parseFloat(document.getElementById('profWeight').value) || 82,
+        height: parseInt(document.getElementById('profHeight').value, 10) || 180,
+        activity: parseFloat(document.getElementById('profActivity').value) || 1.375,
+        goal: document.getElementById('profGoal').value,
+        exerciseCredit: parseFloat(document.getElementById('profExerciseCredit').value),
+        targetKcal: parseInt(document.getElementById('targetKcalInput').value, 10) || 2050,
+        targetProt: parseInt(document.getElementById('targetProtInput').value, 10) || 165,
+        targetCarb: parseInt(document.getElementById('targetCarbInput').value, 10) || 200,
+        targetFat: parseInt(document.getElementById('targetFatInput').value, 10) || 65
+      };
+      calcMotionKcal();
+      saveAppData();
+      alert('Profil og motions-indstillinger er gemt!');
+    }
+
+    function saveApiKey() {
+      localStorage.setItem(API_KEY_STORAGE, document.getElementById('geminiApiKeyInput').value.trim());
+      alert('Gemini API-nøgle er gemt!');
+    }
+
+    // Cloud Sync (JSONBin.io)
+    function loadSyncConfigUI() {
+      try {
+        const cfg = JSON.parse(localStorage.getItem(SYNC_CONFIG_STORAGE) || '{}');
+        document.getElementById('syncApiKeyInput').value = cfg.key || '';
+        document.getElementById('syncBinIdInput').value = cfg.binId || '';
+        if (cfg.key && cfg.binId) {
+          document.getElementById('quickSyncBtns').classList.remove('hidden');
+          document.getElementById('quickSyncBtns').classList.add('flex');
+          document.getElementById('syncStatusSub').textContent = 'Cloud Sync konfigureret';
+        }
+      } catch (e) {}
+    }
+
+    function saveSyncSettings() {
+      const key = document.getElementById('syncApiKeyInput').value.trim();
+      const binId = document.getElementById('syncBinIdInput').value.trim();
+      localStorage.setItem(SYNC_CONFIG_STORAGE, JSON.stringify({ key, binId }));
+      loadSyncConfigUI();
+      alert('Sync-indstillinger gemt!');
+    }
+
+    async function createNewCloudBin() {
+      const key = document.getElementById('syncApiKeyInput').value.trim();
+      if (!key) {
+        alert('Indtast din JSONBin X-Master-Key først.');
+        return;
+      }
+      try {
+        const res = await fetch('https://api.jsonbin.io/v3/b', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': key,
+            'X-Bin-Name': 'makro_tracker_sync'
+          },
+          body: JSON.stringify(appData)
+        });
+        if (!res.ok) throw new Error('Kunne ikke oprette Bin');
+        const data = await res.json();
+        const newId = data.metadata?.id;
+        document.getElementById('syncBinIdInput').value = newId;
+        localStorage.setItem(SYNC_CONFIG_STORAGE, JSON.stringify({ key, binId: newId }));
+        loadSyncConfigUI();
+        alert('Ny Cloud-Bin oprettet! Dit Bin-ID er: ' + newId);
+      } catch (err) {
+        alert('Fejl: ' + err.message);
+      }
+    }
+
+    async function cloudPush() {
+      const cfg = JSON.parse(localStorage.getItem(SYNC_CONFIG_STORAGE) || '{}');
+      if (!cfg.key || !cfg.binId) return;
+      try {
+        document.getElementById('syncStatusSub').textContent = 'Gemmer til skyen...';
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': cfg.key },
+          body: JSON.stringify(appData)
+        });
+        if (!res.ok) throw new Error('Sync fejl');
+        document.getElementById('syncStatusSub').textContent = 'Gemt i skyen kl. ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+      } catch (err) {
+        alert('Kunne ikke gemme til skyen: ' + err.message);
+      }
+    }
+
+    async function cloudPull() {
+      const cfg = JSON.parse(localStorage.getItem(SYNC_CONFIG_STORAGE) || '{}');
+      if (!cfg.key || !cfg.binId) return;
+      try {
+        document.getElementById('syncStatusSub').textContent = 'Henter fra skyen...';
+        const res = await fetch(`https://api.jsonbin.io/v3/b/${cfg.binId}/latest`, {
+          headers: { 'X-Master-Key': cfg.key }
+        });
+        if (!res.ok) throw new Error('Hent fejl');
+        const data = await res.json();
+        if (data.record && data.record.profile) {
+          appData = data.record;
+          saveAppData();
+          populateProfileInputs();
+          document.getElementById('syncStatusSub').textContent = 'Synkroniseret kl. ' + new Date().toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+        }
+      } catch (err) {
+        alert('Kunne ikke hente fra skyen: ' + err.message);
+      }
+    }
+
+    function exportDataJson() {
+      const blob = new Blob([JSON.stringify(appData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `makro-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importDataJson(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!imported.profile || !imported.days) throw new Error('Ugyldigt format');
+          appData = imported;
+          saveAppData();
+          populateProfileInputs();
+          alert('Backup indlæst!');
+        } catch (err) {
+          alert('Fejl: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
